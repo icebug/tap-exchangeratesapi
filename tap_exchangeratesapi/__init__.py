@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
-
+import singer
 import json
 import sys
 import argparse
 import time
 import requests
-import singer
 import backoff
 import copy
 
 from datetime import date, datetime, timedelta
 
-base_url = 'https://api.exchangeratesapi.io/'
+base_url = 'http://api.exchangeratesapi.io/'
 
 logger = singer.get_logger()
 session = requests.Session()
 
-DATE_FORMAT='%Y-%m-%d'
+DATE_FORMAT = '%Y-%m-%d'
+
 
 def parse_response(r):
     flattened = r['rates']
     flattened[r['base']] = 1.0
+    flattened['base'] = r['base']
     flattened['date'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.strptime(r['date'], DATE_FORMAT))
     return flattened
 
+
 schema = {'type': 'object',
           'properties':
-          {'date': {'type': 'string',
-                    'format': 'date-time'}}}
+              {'date': {'type': 'string',
+                        'format': 'date-time'},
+               'base': {'type': 'string'}
+               }
+          }
+
 
 def giveup(error):
     logger.error(error.response.text)
@@ -35,8 +41,9 @@ def giveup(error):
     return not (response.status_code == 429 or
                 response.status_code >= 500)
 
+
 @backoff.on_exception(backoff.constant,
-                      (requests.exceptions.RequestException),
+                      requests.exceptions.RequestException,
                       jitter=backoff.random_jitter,
                       max_tries=5,
                       giveup=giveup,
@@ -45,19 +52,18 @@ def request(url, params):
     response = requests.get(url=url, params=params)
     response.raise_for_status()
     return response
-    
-def do_sync(base, start_date):
+
+
+def do_sync(start_date, access_key):
     state = {'start_date': start_date}
     next_date = start_date
     prev_schema = {}
-    
+
     try:
         while datetime.strptime(next_date, DATE_FORMAT) <= datetime.utcnow():
-            logger.info('Replicating exchange rate data from %s using base %s',
-                        next_date,
-                        base)
+            logger.info('Replicating exchange rate data from %s', next_date)
 
-            response = request(base_url + next_date, {'base': base})
+            response = request(base_url + next_date, {'access_key': access_key})
             payload = response.json()
 
             # Update schema if new currency/currencies exist
@@ -91,17 +97,14 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '-c', '--config', help='Config file', required=False)
+        '-c', '--config', help='Config file', required=True)
     parser.add_argument(
         '-s', '--state', help='State file', required=False)
 
     args = parser.parse_args()
 
-    if args.config:
-        with open(args.config) as file:
-            config = json.load(file)
-    else:
-        config = {}
+    with open(args.config) as file:
+        config = json.load(file)
 
     if args.state:
         with open(args.state) as file:
@@ -111,8 +114,9 @@ def main():
 
     start_date = state.get('start_date') or config.get('start_date') or datetime.utcnow().strftime(DATE_FORMAT)
     start_date = singer.utils.strptime_with_tz(start_date).date().strftime(DATE_FORMAT)
+    access_key = config.get('access_key')
 
-    do_sync(config.get('base', 'USD'), start_date)
+    do_sync(start_date, access_key)
 
 
 if __name__ == '__main__':
