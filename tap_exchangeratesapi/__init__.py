@@ -65,6 +65,7 @@ def do_sync(start_date, access_key):
 
             response = request(base_url + next_date, {'access_key': access_key})
             payload = response.json()
+            logger.critical(payload)
 
             # Update schema if new currency/currencies exist
             for rate in payload['rates']:
