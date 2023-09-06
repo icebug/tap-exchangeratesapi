@@ -10,7 +10,7 @@ import copy
 
 from datetime import date, datetime, timedelta
 
-base_url = "http://api.apilayer.com/exchangerates_data/"
+base_url = "http://api.exchangeratesapi.io/"
 
 logger = singer.get_logger()
 session = requests.Session()
@@ -51,8 +51,8 @@ def giveup(error):
     giveup=giveup,
     interval=30,
 )
-def request(url, headers, params=None):
-    response = requests.get(url=url, params=params, headers=headers)
+def request(url, params):
+    response = requests.get(url=url, params=params)
     response.raise_for_status()
     return response
 
@@ -66,7 +66,7 @@ def do_sync(start_date, access_key):
         while datetime.strptime(next_date, DATE_FORMAT) <= datetime.utcnow():
             logger.info("Replicating exchange rate data from %s", next_date)
 
-            response = request(base_url + next_date, headers={"apikey": access_key})
+            response = request(base_url + next_date, {"access_key": access_key})
             payload = response.json()
             logger.critical(payload)
 
